@@ -1,0 +1,285 @@
+Connect to mongoDB Atlas:
+-------------------------
+
+mongosh "mongodb+srv://cluster0.qps5dlz.mongodb.net/COVID19" --apiVersion 1 --username admin
+
+
+
+1)	The number of new cases, new deaths and new recovered
+
+db.country_wise_latest.aggregate([
+   {
+      $group: {
+         _id: null,
+         "New cases": { $sum: "$New cases" },
+         "New deaths": { $sum: "$New deaths" },
+         "New recovered": { $sum: "$New recovered" }
+      }
+   },
+   {
+      $project : {
+         _id : 0 ,
+         "New cases" : 1,
+         "New deaths" : 1,
+         "New recovered": 1
+      }
+   }
+])
+
+
+
+2)	The number of death cases in each country of continent Asia and also the corresponding WHO regions
+
+
+
+db.worldometer_data.find(
+	{ Continent : {$eq:"Asia"} },
+	{ 
+		"Country/Region" : 1 , 
+		"WHO Region" : 1, 
+		"TotalDeaths" : 1 , 
+		"_id" : 0
+	},
+).sort({ "TotalDeaths" : -1 })
+
+
+3)	The number of deaths that occurred on 12-02-2020
+
+
+
+db.day_wise.find(
+	{	
+		Date:{$eq:ISODate("2020-02-12")}
+	},
+	{
+		Deaths : 1, 
+		_id : 0
+	}
+)
+
+
+
+4)	The number of active new cases (new cases-(new death+new recovered)) in a reverse sorted order based on the country name
+
+
+db.country_wise_latest.aggregate([
+ {
+ 	$sort: { "Country/Region" : -1 }
+ },
+ {
+ 	$project: {
+ 	_id: 0,
+ 	"Country/Region": 1,
+ 	activeNewCases: {
+ 		$subtract: [
+ 			"$New cases",
+ 			{ $add: [ "$New deaths", "$New recovered" ] }
+ 		] 
+ 	} 
+ }
+}
+])
+
+
+
+5)	The names of the countries with more than 9000 active cases and more than 800 deaths
+
+db.country_wise_latest.find(
+	{ 
+		$and:[ {"Active": {$gt:9000}} , {"Deaths": {$gt:800 }}] 
+	},
+	{ 
+		"Country/Region" : 1, 
+		_id : 0
+	}
+)
+
+
+
+6)	The country with the highest number of active cases and also with second highest death rate
+
+
+db.country_wise_latest.aggregate(
+{ 
+	$facet: 
+	{
+ 	"Country with the highest number of active cases": [
+ 		{$sort: { Active: -1 }},
+ 		{$limit: 1},
+ 		{
+ 			$project: {
+ 					"_id" : 0,
+ 					"Country/Region": 1
+ 					}
+ 		}
+ 	],
+ 	"Country with with second highest death rate": [
+ 		{$sort: { "Deaths / 100 Cases": -1 }},
+ 		{$skip: 1 },
+ 		{$limit: 1},
+ 		{
+ 			$project: {
+ 					"_id" : 0,
+ 					"Country/Region": 1,
+ 					}
+ 		}
+ 	]
+ 	}
+})
+
+
+
+7)	The total number of deaths all around the world
+
+
+db.country_wise_latest.aggregate([
+   {
+      $group: {
+         _id: null,
+         "totalDeaths": { $sum: "$Deaths" }
+      }
+   },
+   {
+      $project : {
+         _id : 0 ,
+         "totalDeaths" : 1
+      }
+   }
+])
+
+
+
+
+8)	The number of death cases and active cases between 28-01-2020 and 21-02-2020
+
+db.day_wise.aggregate([
+   {
+      $match: {
+         Date: {
+            $gte: ISODate("2020-01-28"),
+            $lte: ISODate("2020-02-21")
+         }
+      }
+   },
+   {
+      $group: {
+         _id: null,
+         totalDeaths: { $sum: "$Deaths" },
+         totalActiveCases: { $sum: "$Active" }
+      }
+   },
+   {
+      $project : {
+         _id : 0 ,
+         totalDeaths : 1,
+         totalActiveCases : 1
+      }
+   }
+])
+
+
+
+9)	The latitude and longitude of countries ending with “ia” and the number of countries
+
+
+db.covid_19_clean_complete.aggregate([
+   {
+      $match: {
+         "Country/Region": {$regex: "ia$"}
+      }
+   },
+   {"$addFields":{ "lat_long_array": [ "$Lat", "$Long" ]}},
+   {
+      $facet: {
+         "Latitude and Longitude of countries ending with ia": [
+            {
+               $group: {
+                  _id: "$Country/Region",
+                  "Lat_Long_Array" : { $addToSet: '$lat_long_array'}
+               }
+            }
+         ],
+         "NumberofCountries": [
+            {
+               $group: {
+                  _id: null,
+                  "dis_countries": { $addToSet: '$Country/Region'}
+               }
+            }
+         ]
+      }
+   },
+   {
+      $project: {
+	     "Number of Countries ending with ia": {$size: {$arrayElemAt: [ "$NumberofCountries.dis_countries", 0 ]}},
+		 "Latitude and Longitude of countries ending with ia": 1
+	  }
+   }
+])
+
+
+
+
+10)	The countries with active cases on 30/03/2020
+
+
+db.full_grouped.find(
+   {
+      Date: ISODate("2020-03-30"),
+      Active: { $gt: 0 }
+   },
+   { "Country/Region" : 1, _id : 0 }
+)
+
+
+
+11)	The latitude and longitude of those countries which are having active cases greater than 100
+
+
+db.covid_19_clean_complete.aggregate([
+   {
+      $match: {
+         Active: { $gt: 100 }
+      }
+   },
+   {
+      $group: {
+         _id: "$Country/Region",
+         Lat: { $first: "$Lat" },
+         Long: { $first: "$Long" }
+      }
+   }
+])
+
+
+
+12)	The countries and respective dates in which maximum increase of active cases occurred.
+
+
+db.full_grouped.aggregate([
+  {
+    "$setWindowFields": {
+      "partitionBy": "$Country/Region",
+      "sortBy": {
+        "Date": 1
+      },
+      "output": {
+        prev_day_active: {
+          $shift: {
+            output: "$Active",
+            by: -1,
+            default: 0
+          }
+        }
+      }
+    }
+  },
+  {"$addFields":{ "incr_active":{"$subtract":["$Active", "$prev_day_active"]}}},
+  {$sort: {"incr_active": -1}},
+  {
+    "$group": {
+	  "_id": "$Country/Region",
+	  "MaxIncreaseActiveCaseDate": { "$first": "$Date" }
+	}
+  }
+])
